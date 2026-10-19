@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sorteio de Equipes</title>
+<style>
+  :root {
+    --bg: #f5f6fa; --card: #ffffff; --text: #1d2130; --muted: #6b7185;
+    --border: #dfe2ea; --accent: #3b5bdb; --accent-text: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #13151c; --card: #1d2029; --text: #e8eaf0; --muted: #9298ab;
+      --border: #2e3240; --accent: #5c7cfa; --accent-text: #ffffff;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; line-height: 1.5;
+  }
+  main { max-width: 900px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { margin: 0 0 4px; font-size: 1.8rem; }
+  .sub { margin: 0 0 24px; color: var(--muted); }
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 20px; margin-bottom: 20px;
+  }
+  label { display: block; font-weight: 600; margin-bottom: 6px; }
+  .hint { font-weight: 400; color: var(--muted); font-size: .9rem; }
+  textarea, input[type=number], input[type=text] {
+    width: 100%; padding: 10px 12px; font: inherit; color: var(--text);
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+  }
+  textarea { min-height: 200px; resize: vertical; }
+  .row { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 16px; align-items: flex-end; }
+  .row > div { flex: 1 1 180px; }
+  .count { color: var(--muted); font-size: .9rem; margin-top: 6px; }
+  .teamnames { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; margin-top: 8px; }
+  .buttons { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 20px; }
+  button {
+    font: inherit; font-weight: 600; padding: 10px 18px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--card); color: var(--text); cursor: pointer;
+  }
+  button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  button:hover { filter: brightness(1.08); }
+  .error { color: #e03131; margin-top: 12px; min-height: 1.5em; }
+  #results { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
+  .team { background: var(--card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .team h2 { margin: 0; padding: 12px 16px; font-size: 1.1rem; color: #fff; }
+  .team ol { margin: 0; padding: 12px 16px 16px 36px; }
+  .team li { padding: 2px 0; }
+  .team .n { font-weight: 400; opacity: .85; font-size: .9rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Sorteio de Equipes</h1>
+  <p class="sub">Digite os nomes, escolha quantas equipes e clique em sortear.</p>
+
+  <section class="card">
+    <label for="names">Participantes <span class="hint">(um nome por linha)</span></label>
+    <textarea id="names" placeholder="Ana&#10;Bruno&#10;Carla&#10;Diego"></textarea>
+    <div class="count" id="count">0 participantes</div>
+
+    <div class="row">
+      <div>
+        <label for="teams">Número de equipes</label>
+        <input type="number" id="teams" min="2" max="50" value="2">
+      </div>
+    </div>
+
+    <div style="margin-top:16px">
+      <label>Nomes das equipes <span class="hint">(opcional)</span></label>
+      <div class="teamnames" id="teamnames"></div>
+    </div>
+
+    <div class="buttons">
+      <button class="primary" id="draw">Sortear</button>
+      <button id="copy">Copiar resultado</button>
+      <button id="clear">Limpar nomes</button>
+    </div>
+    <div class="error" id="error"></div>
+  </section>
+
+  <section id="results"></section>
+</main>
+
+<script>
+  const COLORS = ['#3b5bdb', '#e8590c', '#2f9e44', '#c2255c', '#7048e8', '#0c8599', '#f08c00', '#5c940d'];
+  const $ = (id) => document.getElementById(id);
+  const namesEl = $('names'), teamsEl = $('teams'), teamNamesEl = $('teamnames');
+  let lastResult = null;
+
+  function store(key, value) { try { localStorage.setItem(key, value); } catch (e) {} }
+  function load(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
+
+  function getNames() {
+    return namesEl.value.split('\n').map(s => s.trim()).filter(Boolean);
+  }
+
+  function updateCount() {
+    const n = getNames().length;
+    $('count').textContent = n + (n === 1 ? ' participante' : ' participantes');
+  }
+
+  function renderTeamNameInputs() {
+    const k = Math.max(2, Math.min(50, parseInt(teamsEl.value) || 2));
+    const saved = JSON.parse(load('teamNames') || '[]');
+    const current = [...teamNamesEl.querySelectorAll('input')].map(i => i.value);
+    teamNamesEl.innerHTML = '';
+    for (let i = 0; i < k; i++) {
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.placeholder = 'Equipe ' + (i + 1);
+      input.value = current[i] ?? saved[i] ?? '';
+      input.addEventListener('input', saveTeamNames);
+      teamNamesEl.appendChild(input);
+    }
+  }
+
+  function saveTeamNames() {
+    store('teamNames', JSON.stringify([...teamNamesEl.querySelectorAll('input')].map(i => i.value)));
+  }
+
+  // Número aleatório imparcial usando a criptografia do navegador
+  function randomInt(max) {
+    const arr = new Uint32Array(1);
+    const limit = Math.floor(0x100000000 / max) * max;
+    do { crypto.getRandomValues(arr); } while (arr[0] >= limit);
+    return arr[0] % max;
+  }
+
+  // Embaralhamento Fisher-Yates
+  function shuffle(list) {
+    const a = list.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = randomInt(i + 1);
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+
+  function draw() {
+    const names = getNames();
+    const k = parseInt(teamsEl.value);
+    $('error').textContent = '';
+    if (!k || k < 2) { $('error').textContent = 'Escolha pelo menos 2 equipes.'; return; }
+    if (names.length < k) { $('error').textContent = 'Você precisa de pelo menos ' + k + ' nomes para ' + k + ' equipes.'; return; }
+
+    const labels = [...teamNamesEl.querySelectorAll('input')].map((i, idx) => i.value.trim() || 'Equipe ' + (idx + 1));
+    // A ordem das equipes também é embaralhada para que as sobras não caiam sempre nas primeiras
+    const order = shuffle([...Array(k).keys()]);
+    const teams = labels.map(label => ({ label, members: [] }));
+    shuffle(names).forEach((name, i) => teams[order[i % k]].members.push(name));
+
+    lastResult = teams;
+    renderResults(teams);
+  }
+
+  function renderResults(teams) {
+    const root = $('results');
+    root.innerHTML = '';
+    teams.forEach((t, i) => {
+      const div = document.createElement('div');
+      div.className = 'team';
+      const h = document.createElement('h2');
+      h.style.background = COLORS[i % COLORS.length];
+      h.textContent = t.label + ' ';
+      const n = document.createElement('span');
+      n.className = 'n';
+      n.textContent = '(' + t.members.length + ')';
+      h.appendChild(n);
+      const ol = document.createElement('ol');
+      t.members.forEach(m => { const li = document.createElement('li'); li.textContent = m; ol.appendChild(li); });
+      div.append(h, ol);
+      root.appendChild(div);
+    });
+    root.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  async function copyResult() {
+    if (!lastResult) { $('error').textContent = 'Faça um sorteio primeiro.'; return; }
+    const text = lastResult.map(t => t.label + ':\n' + t.members.map(m => '- ' + m).join('\n')).join('\n\n');
+    try {
+      await navigator.clipboard.writeText(text);
+      $('copy').textContent = 'Copiado!';
+      setTimeout(() => $('copy').textContent = 'Copiar resultado', 1500);
+    } catch (e) {
+      $('error').textContent = 'Não foi possível copiar automaticamente.';
+    }
+  }
+
+  namesEl.value = load('names') || '';
+  teamsEl.value = load('teams') || '2';
+  namesEl.addEventListener('input', () => { store('names', namesEl.value); updateCount(); });
+  teamsEl.addEventListener('input', () => { store('teams', teamsEl.value); renderTeamNameInputs(); });
+  $('draw').addEventListener('click', draw);
+  $('copy').addEventListener('click', copyResult);
+  $('clear').addEventListener('click', () => {
+    namesEl.value = ''; store('names', ''); updateCount();
+    $('results').innerHTML = ''; lastResult = null;
+  });
+  updateCount();
+  renderTeamNameInputs();
+</script>
+</body>
+</html>
